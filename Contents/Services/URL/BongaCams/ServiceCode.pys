@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+
+import datetime, time
+
+ART             = 'art-default.jpg'
+ICON            = 'icon-default.png'
+
+BASE_URL        = 'https://bongacams.com'
+SERVICE_URL     = BASE_URL + '/tools/amf.php?x-country=us?{unique}'
+STREAM_URL      = 'https:{server}/hls/stream_{model}/playlist.m3u8'
+
+HEADERS         = {
+    'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 8_1_3 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12B466 Safari/600.1.4',
+    'X-Requested-With': 'XMLHttpRequest',
+}
+
+####################################################################################################
+def MetadataObjectForURL(url):
+    html = HTML.ElementFromURL(url)
+
+    modelName       = html.xpath('//div[@class="profile_photo"]/img')[0].get('alt')
+    modelThumb      = html.xpath('//div[@class="profile_photo"]/img')[0].get('src')
+    modelSummary    = html.xpath('//div[@class="mp_block mpb_addl_info"]//p[2]/text()')[0]
+
+    return VideoClipObject(
+            title           = unicode(modelName.strip()),
+            summary         = unicode(modelSummary.strip()),
+            year            = datetime.datetime.now().year,
+            thumb           = 'https:{}'.format(modelThumb),
+            art             = R(ART),
+            content_rating  = 'X'
+        )
+
+####################################################################################################
+def MediaObjectsForURL(url):
+    return [
+        MediaObject(
+            protocol='hls',
+            container='mpegts',
+            video_codec=VideoCodec.H264,
+            audio_codec=AudioCodec.AAC,
+            audio_channels=2,
+            optimized_for_streaming=True,
+            parts=[PartObject(key=Callback(PlayVideo, url=url))]
+        )
+    ]
+
+####################################################################################################
+@indirect
+def PlayVideo(url, **kwargs):
+    HTTP.CacheTime  = CACHE_1MINUTE
+
+    userName        = url.split('/')[-1]
+    data            = ( 'method=getRoomData&args[]={}&args[]=false'.format(userName) )
+
+    apiRequest      = SERVICE_URL.format(unique=time.time())
+    apiResponse     = HTTP.Request(apiRequest, data=data, headers=HEADERS)
+    metadataJson    = JSON.ObjectFromString(apiResponse.content)
+
+    hlsServer       = metadataJson['localData']['videoServerUrl']
+    playlistUrl     = STREAM_URL.format(server=hlsServer, model=userName)
+
+    Log.Debug("PlaylistURL: {}".format(playlistUrl))    
+
+    return IndirectResponse(VideoClipObject, key=HTTPLiveStreamURL(playlistUrl))
